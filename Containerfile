@@ -1,7 +1,10 @@
 FROM debian:stable
 
 ARG USERNAME
+ARG USER_UID
+ARG USER_GID
 ARG CHEZMOI_DOTFILES_REPO
+ARG DISTROBOX_VERSION=1.8.2.5
 ARG USE_RUST=true
 ARG USE_NPM=true
 ARG USE_UV=true
@@ -141,9 +144,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+RUN curl -fsSL "https://raw.githubusercontent.com/89luca89/distrobox/${DISTROBOX_VERSION}/distrobox-host-exec" \
+        -o /usr/local/bin/distrobox-host-exec \
+    && chmod +x /usr/local/bin/distrobox-host-exec
+
 # Create user with sudo access
-RUN useradd -m -s /bin/zsh ${USERNAME} \
-    && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+RUN set -eux; \
+    user_group="${USERNAME}"; \
+    if [ -n "${USER_GID}" ]; then \
+        if getent group "${USER_GID}" >/dev/null; then \
+            user_group="$(getent group "${USER_GID}" | cut -d: -f1)"; \
+        else \
+            groupadd -g "${USER_GID}" "${USERNAME}"; \
+        fi; \
+    elif ! getent group "${USERNAME}" >/dev/null; then \
+        groupadd "${USERNAME}"; \
+    fi; \
+    set -- useradd -m -s /bin/zsh; \
+    if [ -n "${USER_UID}" ]; then \
+        set -- "$@" --uid "${USER_UID}"; \
+    fi; \
+    if [ -n "${USER_GID}" ]; then \
+        set -- "$@" --gid "${USER_GID}"; \
+    else \
+        set -- "$@" --gid "${user_group}"; \
+    fi; \
+    "$@" "${USERNAME}"; \
+    echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
 # Update apt-file cache
 RUN apt-file update || true
